@@ -1430,7 +1430,12 @@ const vrCtrls=[0,1].map(i=>{
 function vrAim(c){ vrTmpM.identity().extractRotation(c.matrixWorld); ray.ray.origin.setFromMatrixPosition(c.matrixWorld); ray.ray.direction.set(0,0,-1).applyMatrix4(vrTmpM); }
 // 最初に当たる物だけを対象にする（壁やテーブル越しの着座を防ぐ）。
 function vrSeatTarget(){
-  const hit=ray.intersectObjects([buildGroup,furnGroup],true)[0];
+  // Lineの判定幅は既定で1mあるため、輪郭線・グリッドを着座の遮蔽物にしない。
+  const meshes=[];
+  [buildGroup,furnGroup].forEach(group=>group.traverseVisible(o=>{
+    if(o.isMesh) meshes.push(o);
+  }));
+  const hit=ray.intersectObjects(meshes,false)[0];
   if(!hit || hit.distance>4) return null;
   let obj=hit.object;
   while(obj && obj.userData.itemId===undefined) obj=obj.parent;
