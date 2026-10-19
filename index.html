@@ -1328,7 +1328,7 @@ function standUp(){
 let walk=null, keys={}, joyV={x:0,y:0}, savedWall=null;
 const START={"1F":{x:1990,y:9300,yaw:Math.PI}};
 function walkBlocked(x,y){
-  const r=180, fl=walk.floor;
+  const r=150, fl=walk.floor;
   const hitBox=o=>x+r>o.x1&&x-r<o.x2&&y+r>o.y1&&y-r<o.y2;
   if(wallSegs[fl].some(hitBox)) return true;
   if(fixtureBoxes[fl].some(hitBox)) return true;
@@ -1392,7 +1392,7 @@ vrBtn.onclick=async()=>{
   catch(e){ toast("VRを開始できませんでした（https で開いているか確認してください）"); }
 };
 function vrBlocked(x,y){
-  const r=180, fl=vrFloor, hit=o=>x+r>o.x1&&x-r<o.x2&&y+r>o.y1&&y-r<o.y2;
+  const r=150, fl=vrFloor, hit=o=>x+r>o.x1&&x-r<o.x2&&y+r>o.y1&&y-r<o.y2;
   return wallSegs[fl].some(hit)||fixtureBoxes[fl].some(hit)||items.some(it=>it.floor===fl&&it.type!=="rug"&&it.type!=="cat"&&!(it.z>0)&&hit(aabb(it)));
 }
 function vrStart(){
@@ -1519,14 +1519,94 @@ function vrStep(dt){
     if(p){ const w=P(p.x,p.y,FLOORS[vrFloor].elev+10); c.worldToLocal(w); t.position.copy(w); t.visible=w.length()<6; } else t.visible=false; });
 }
 
+
+/* --- ついてくる猫（歩くモードとVRで一緒に歩き、ときどき鳴く） --- */
+const FCAT={on:true,obj:null,x:0,y:0,yaw:0,t:0,active:false,floor:null,stuck:0,nextMeow:2.5,wasMoving:false};
+try{ if(localStorage.getItem(KEY+"-fcat")==="0") FCAT.on=false; }catch(e){}
+let AC=null;
+function audioInit(){ try{ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==="suspended") AC.resume(); }catch(e){} }
+addEventListener("pointerdown",audioInit,{passive:true}); addEventListener("keydown",audioInit);
+function meow(){
+  if(!AC||!FCAT.obj) return;
+  const t0=AC.currentTime+0.02, dur=.5+Math.random()*.4, f0=480+Math.random()*220;
+  const osc=AC.createOscillator(); osc.type="sawtooth";
+  osc.frequency.setValueAtTime(f0*.78,t0); osc.frequency.linearRampToValueAtTime(f0*1.3,t0+dur*.35); osc.frequency.linearRampToValueAtTime(f0*.72,t0+dur);
+  const vib=AC.createOscillator(), vg=AC.createGain(); vib.frequency.value=6; vg.gain.value=f0*.02; vib.connect(vg).connect(osc.frequency);
+  const bp=AC.createBiquadFilter(); bp.type="bandpass"; bp.Q.value=3.5;              // 「ミ→ア→ウ」と口の形が変わる感じ
+  bp.frequency.setValueAtTime(1100,t0); bp.frequency.linearRampToValueAtTime(2100,t0+dur*.3); bp.frequency.linearRampToValueAtTime(800,t0+dur);
+  const lp=AC.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=3800;
+  const g=AC.createGain(); g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(.5,t0+.06); g.gain.setValueAtTime(.5,t0+dur*.55); g.gain.exponentialRampToValueAtTime(.0001,t0+dur);
+  const pan=AC.createPanner(); pan.panningModel="HRTF"; pan.distanceModel="inverse"; pan.refDistance=.8; pan.rolloffFactor=1.2;
+  const cp=FCAT.obj.position; if(pan.positionX){ pan.positionX.value=cp.x; pan.positionY.value=cp.y+.25; pan.positionZ.value=cp.z; } else pan.setPosition(cp.x,cp.y+.25,cp.z);
+  osc.connect(bp).connect(lp).connect(g).connect(pan).connect(AC.destination);
+  osc.start(t0); vib.start(t0); osc.stop(t0+dur+.05); vib.stop(t0+dur+.05);
+  FCAT.meowT=.6;   // 鳴いている間は顔を上げる
+}
+function catListener(){
+  if(!AC) return; const L=AC.listener, pos=new THREE.Vector3(), fw=new THREE.Vector3(), up=new THREE.Vector3(0,1,0);
+  camera.getWorldPosition(pos); camera.getWorldDirection(fw); up.applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+  if(L.positionX){ L.positionX.value=pos.x; L.positionY.value=pos.y; L.positionZ.value=pos.z; L.forwardX.value=fw.x; L.forwardY.value=fw.y; L.forwardZ.value=fw.z; L.upX.value=up.x; L.upY.value=up.y; L.upZ.value=up.z; }
+  else { L.setPosition(pos.x,pos.y,pos.z); L.setOrientation(fw.x,fw.y,fw.z,up.x,up.y,up.z); }
+}
+function catBlocked(x,y,fl){
+  const r=110, hit=o=>x+r>o.x1&&x-r<o.x2&&y+r>o.y1&&y-r<o.y2;
+  return wallSegs[fl].some(hit)||fixtureBoxes[fl].some(hit)||items.some(it=>it.floor===fl&&it.type!=="rug"&&it.type!=="cat"&&!(it.z>0)&&it.h>120&&hit(aabb(it)));
+}
+function catHide(){ FCAT.active=false; if(FCAT.obj) FCAT.obj.visible=false; }
+function catStep(dt,px,py,pyaw,fl){
+  if(!FCAT.on){ catHide(); return; }
+  if(!FCAT.obj){ FCAT.obj=new THREE.Group(); const m=buildModel({type:"cat",w:220,d:500,h:300,c:"#d9a066"}); FCAT.body=m; FCAT.obj.add(m); scene.add(FCAT.obj); }
+  const fx=-Math.sin(pyaw), fy=Math.cos(pyaw);   // 人の正面（平面）
+  const sideX=Math.cos(pyaw), sideY=Math.sin(pyaw);
+  const tx=px-fx*650+sideX*350, ty=py-fy*650+sideY*350; // 少し後ろの右側がいつもの場所
+  if(!FCAT.active||FCAT.floor!==fl){
+    FCAT.floor=fl; FCAT.active=true;
+    if(!catBlocked(tx,ty,fl)){ FCAT.x=tx; FCAT.y=ty; } else { FCAT.x=px-fx*500; FCAT.y=py-fy*500; }
+    FCAT.yaw=pyaw; FCAT.nextMeow=1.2;
+  }
+  FCAT.obj.visible=true;
+  const dxp=px-FCAT.x, dyp=py-FCAT.y, dist=Math.hypot(dxp,dyp);
+  let moving=false;
+  if(dist>4500){ if(!catBlocked(tx,ty,fl)){ FCAT.x=tx; FCAT.y=ty; } }        // はぐれたら近くに来る
+  else if(dist>900){
+    const gx=tx-FCAT.x, gy=ty-FCAT.y, gl=Math.hypot(gx,gy)||1, sp=(dist>2200?2400:1300)*dt;
+    const mx=gx/gl*Math.min(sp,gl), my=gy/gl*Math.min(sp,gl);
+    let ok=false;
+    if(!catBlocked(FCAT.x+mx,FCAT.y+my,fl)){ FCAT.x+=mx; FCAT.y+=my; ok=true; }
+    else { if(!catBlocked(FCAT.x+mx,FCAT.y,fl)){ FCAT.x+=mx; ok=true; } if(!catBlocked(FCAT.x,FCAT.y+my,fl)){ FCAT.y+=my; ok=true; } }
+    FCAT.stuck=ok?0:FCAT.stuck+dt;
+    if(FCAT.stuck>1.5){ const bx=px-fx*450, by=py-fy*450; if(!catBlocked(bx,by,fl)){ FCAT.x=bx; FCAT.y=by; } FCAT.stuck=0; }
+    if(ok){ moving=true; const want=Math.atan2(mx,-my); let d=want-FCAT.yaw; while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI; FCAT.yaw+=d*Math.min(1,dt*8); }
+  } else {   // 近くにいるときは人の方を向く
+    const want=Math.atan2(dxp,-dyp); let d=want-FCAT.yaw; while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI; FCAT.yaw+=d*Math.min(1,dt*3);
+  }
+  FCAT.t+=dt*(moving?11:2);
+  const e=FLOORS[fl].elev, bob=moving?Math.abs(Math.sin(FCAT.t))*25:Math.sin(FCAT.t)*4;
+  FCAT.obj.position.copy(P(FCAT.x,FCAT.y,e+bob)); FCAT.obj.rotation.y=FCAT.yaw;
+  FCAT.meowT=Math.max(0,(FCAT.meowT||0)-dt); FCAT.body.rotation.x=FCAT.meowT>0?-.12:0;
+  // 鳴くタイミング：歩き始め、そばで止まったとき、ときどき
+  FCAT.nextMeow-=dt;
+  if(moving&&!FCAT.wasMoving&&Math.random()<.5) FCAT.nextMeow=Math.min(FCAT.nextMeow,.3);
+  if(FCAT.nextMeow<=0){ catListener(); meow(); FCAT.nextMeow=5+Math.random()*9; }
+  FCAT.wasMoving=moving;
+  catListener();
+}
+// 「追加」タブに切り替え
+(function(){ const p=$("p-add"); if(!p) return; const lab=document.createElement("label"); lab.className="chk"; lab.style.margin="0 0 10px";
+  lab.innerHTML='<input type="checkbox" id="fcat-on"> ついてくる猫（歩くモードとVRで一緒に歩いて、ときどき鳴きます）';
+  p.prepend(lab); const cb=lab.querySelector("input"); cb.checked=FCAT.on;
+  cb.onchange=()=>{ FCAT.on=cb.checked; try{localStorage.setItem(KEY+"-fcat",FCAT.on?"1":"0");}catch(e){} if(!FCAT.on) catHide(); else if(walk){ audioInit(); FCAT.active=false; } };
+})();
+
 /* --- ループ --- */
 function resize(){const r=cv.parentElement.getBoundingClientRect(); renderer.setSize(r.width,r.height,false); camera.aspect=r.width/Math.max(1,r.height); camera.updateProjectionMatrix();}
 new ResizeObserver(resize).observe(cv.parentElement);
 let lastT=performance.now();
 function loop(now){
   const dt=Math.min(0.05,(now-lastT)/1000); lastT=now;
-  if(renderer.xr.isPresenting){ vrStep(dt); renderer.render(scene,camera); return; }
-  if(walk){ stepWalk(dt); renderer.render(scene,camera); return; }
+  if(renderer.xr.isPresenting){ vrStep(dt); { const h=camera.getWorldPosition(new THREE.Vector3()), dv=new THREE.Vector3(); camera.getWorldDirection(dv); catStep(dt,h.x*1000,-h.z*1000,Math.atan2(-dv.x,-dv.z),vrFloor); } renderer.render(scene,camera); return; }
+  if(walk){ stepWalk(dt); catStep(dt,walk.x,walk.y,walk.yaw,walk.floor); renderer.render(scene,camera); return; }
+  if(FCAT.active) catHide();
   if(anim){const k=Math.min(1,(now-anim.s)/650), q=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2; camera.position.lerpVectors(anim.p0,anim.p1,q); controls.target.lerpVectors(anim.t0,anim.t1,q); if(k>=1)anim=null;}
   controls.update(); renderer.render(scene,camera);
 }
