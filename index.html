@@ -134,6 +134,8 @@ textarea{width:100%;min-height:110px;font:12px var(--f-mono);background:var(--su
     <div class="pane" id="p-room" hidden></div>
     <div class="pane" id="p-light" hidden></div>
     <div class="pane" id="p-save" hidden>
+      <h3>Quest のVR操作</h3>
+      <p class="note">椅子・ソファに緑のレーザーを向けてトリガーで座る ／ 左スティックで立ち上がって移動 ／ 右スティックで回転 ／ 床を指してトリガーでワープ ／ グリップで昼夜切り替え。座る操作は仮想空間の目線を変更します。</p>
       <h3>この端末に自動保存</h3>
       <p class="note">配置はこのブラウザに自動で保存されます。別の端末に移すときや、案を残したいときは下の書き出しを使ってください。</p>
       <h3>書き出し・読み込み</h3>
@@ -276,9 +278,9 @@ const SAMPLE = [
   {floor:"1F",type:"sofa",name:"ソファ 3人掛",w:2000,d:880,h:800,c:"#7d8a84",x:3450,y:1150,rot:90},
   {floor:"1F",type:"plant",name:"観葉植物",w:450,d:450,h:1300,c:"#4f7a52",x:5550,y:2600,rot:0},
   {floor:"1F",type:"table",name:"テーブル 4人",w:1350,d:800,h:720,c:"#a27d58",x:4600,y:3150,rot:0},
-  {floor:"1F",type:"chair",name:"チェア",w:440,d:500,h:800,c:"#5a4a3c",x:4290,y:2500,rot:180},
-  {floor:"1F",type:"chair",name:"チェア",w:440,d:500,h:800,c:"#5a4a3c",x:4910,y:2500,rot:180},
-  {floor:"1F",type:"chair",name:"チェア",w:440,d:500,h:800,c:"#5a4a3c",x:3650,y:3150,rot:90},
+  {floor:"1F",type:"chair",name:"チェア",w:440,d:500,h:800,c:"#5a4a3c",x:4290,y:2870,rot:180},
+  {floor:"1F",type:"chair",name:"チェア",w:440,d:500,h:800,c:"#5a4a3c",x:4910,y:2870,rot:180},
+  {floor:"1F",type:"chair",name:"チェア",w:440,d:500,h:800,c:"#5a4a3c",x:4000,y:3420,rot:90},
   {floor:"1F",type:"box",name:"冷蔵庫 500L",w:685,d:700,h:1830,c:"#e9ebec",x:5450,y:5485,rot:180},
   {floor:"1F",type:"box",name:"食器棚",w:1200,d:450,h:1800,c:"#d9cfbf",x:4500,y:5610,rot:180},
   {floor:"1F",type:"bed",name:"ベッド シングル",w:970,d:1950,h:450,c:"#e6e0d4",x:3472,y:8100,rot:90},
@@ -304,6 +306,18 @@ function load(){
 function save(){try{localStorage.setItem(KEY,JSON.stringify({items}));}catch(e){}}
 function useSample(){items=SAMPLE.map((s,i)=>Object.assign({id:i+1},s)); nextId=items.length+1;}
 const hadSaved=load(); if(!hadSaved) useSample();
+try{
+  if(hadSaved && !localStorage.getItem(KEY+"-mig-tuck-dining")){
+    const moves=[{x:4290,y:2500,rot:180,nx:4290,ny:2870},{x:4910,y:2500,rot:180,nx:4910,ny:2870},{x:3650,y:3150,rot:90,nx:4000,ny:3420}];
+    items.forEach(i=>{
+      if(i.floor!=="1F"||i.type!=="chair"||i.name!=="チェア"||i.w!==440||i.d!==500) return;
+      const m=moves.find(m=>i.x===m.x&&i.y===m.y&&i.rot===m.rot);
+      if(m){i.x=m.nx;i.y=m.ny;}
+    });
+    save(); localStorage.setItem(KEY+"-mig-tuck-dining","1");
+  }
+}catch(e){}
+
 try{ if(hadSaved && !localStorage.getItem(KEY+"-mig-single")){ items.forEach(i=>{ if(i.type==="bed"&&i.name==="ベッド ダブル"&&i.y>6784){ i.name="ベッド シングル"; i.w=970; } }); save(); localStorage.setItem(KEY+"-mig-single","1"); } }catch(e){}
 try{ if(hadSaved && !localStorage.getItem(KEY+"-mig-lamp")){ if(!items.some(i=>i.type==="floorLamp")) items.push(Object.assign({id:nextId++},{floor:"1F",type:"floorLamp",name:"レトロなスタンドライト（ステンレス）",w:380,d:380,h:1500,c:"#d4d8db",x:2700,y:1000,rot:-70})); save(); localStorage.setItem(KEY+"-mig-lamp","1"); } }catch(e){}
 try{ if(hadSaved && !localStorage.getItem(KEY+"-mig-art")){ items.forEach(i=>{ if(i.type==="wallMonitor") i.screen="art"; if(i.type==="cat"){ const sf=items.find(x=>x.type==="sofa"); if(sf){ i.x=sf.x+30; i.y=sf.y+400; i.z=520; i.rot=60; } } }); save(); localStorage.setItem(KEY+"-mig-art","1"); } }catch(e){}
@@ -1366,7 +1380,7 @@ function stepWalk(dt){
 /* ============ VR（WebXR：Meta Quest のブラウザ用） ============ */
 renderer.xr.enabled=true; renderer.xr.setReferenceSpaceType("local-floor");
 const rig=new THREE.Group(); scene.add(rig);
-let vrFloor=null, vrSnapCool=0;
+let vrFloor=null, vrSnapCool=0, vrSeat=null;
 const vrBtn=document.createElement("button"); vrBtn.className="vrbtn"; vrBtn.id="vr-btn"; vrBtn.textContent="VRで入る";
 document.querySelector(".view").appendChild(vrBtn);
 if(!navigator.xr){ vrBtn.textContent="VR非対応のブラウザです"; vrBtn.disabled=true; }
@@ -1386,6 +1400,7 @@ function vrStart(){
   if(walk){ x=walk.x; y=walk.y; yaw=walk.yaw; f=walk.floor; stopWalk(); }
   else { f=FLOORS[active]?active:Object.keys(FLOORS)[0]; const st=START[f]; x=st.x; y=st.y; yaw=st.yaw; }
   if(active!==f) setFloor(f);
+  vrSeat=null; vrSnapCool=0;
   vrFloor=f; if(wallMode!=="full") setWall("full");
   select(null); controls.enabled=false; anim=null;
   rig.position.copy(P(x,y,FLOORS[f].elev)); rig.rotation.set(0,yaw,0);
@@ -1393,6 +1408,7 @@ function vrStart(){
   vrBtn.textContent="VRを終了"; document.body.classList.add("in-vr");
 }
 function vrEnd(){
+  vrSeat=null; vrSnapCool=0;
   scene.add(camera); camera.position.set(0,0,0); camera.rotation.set(0,0,0);
   rig.position.set(0,0,0); rig.rotation.set(0,0,0);
   controls.enabled=true; vrBtn.textContent="VRで入る"; document.body.classList.remove("in-vr");
@@ -1403,7 +1419,7 @@ const vrTmpM=new THREE.Matrix4(), vrV=new THREE.Vector3(), vrUp=new THREE.Vector
 const vrCtrls=[0,1].map(i=>{
   const c=renderer.xr.getController(i); rig.add(c);
   const laser=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-1)]),new THREE.LineBasicMaterial({color:0xc4382c}));
-  laser.scale.z=4; c.add(laser);
+  laser.scale.z=4; c.add(laser); c.userData.laser=laser;
   const tip=new THREE.Mesh(new THREE.SphereGeometry(.02,10,8),new THREE.MeshBasicMaterial({color:0xc4382c})); c.add(tip); c.userData.tip=tip;
   const body=new THREE.Mesh(new THREE.BoxGeometry(.035,.03,.12),new THREE.MeshStandardMaterial({color:0x2a2d30})); body.position.z=.04; c.add(body);
   c.addEventListener("connected",e=>{ c.userData.hand=e.data.handedness; });
@@ -1412,8 +1428,48 @@ const vrCtrls=[0,1].map(i=>{
   return c;
 });
 function vrAim(c){ vrTmpM.identity().extractRotation(c.matrixWorld); ray.ray.origin.setFromMatrixPosition(c.matrixWorld); ray.ray.direction.set(0,0,-1).applyMatrix4(vrTmpM); }
+// 最初に当たる物だけを対象にする（壁やテーブル越しの着座を防ぐ）。
+function vrSeatTarget(){
+  const hit=ray.intersectObjects([buildGroup,furnGroup],true)[0];
+  if(!hit || hit.distance>4) return null;
+  let obj=hit.object;
+  while(obj && obj.userData.itemId===undefined) obj=obj.parent;
+  const it=obj && items.find(i=>i.id===obj.userData.itemId);
+  return it && it.floor===vrFloor && SIT[it.type] ? {it,hit} : null;
+}
+function vrSit(it){
+  const head=camera.getWorldPosition(new THREE.Vector3());
+  const previous=vrSeat || {from:{x:head.x*1000,y:-head.z*1000},baseY:rig.position.y};
+  const angle=(it.rot||0)*Math.PI/180, forward=it.type==="sofa"?it.d*.12:0;
+  const x=it.x+Math.sin(angle)*forward, y=it.y-Math.cos(angle)*forward;
+  rig.position.x+=M(x)-head.x; rig.position.z+=-M(y)-head.z;
+  rig.position.y+=M(FLOORS[vrFloor].elev+(it.z||0)+SIT[it.type])-head.y;
+  vrSeat={itemId:it.id,from:previous.from,baseY:previous.baseY};
+  rig.updateMatrixWorld(true);
+}
+function vrStand(){
+  if(!vrSeat) return true;
+  const it=items.find(i=>i.id===vrSeat.itemId), candidates=[];
+  if(it){
+    const angle=(it.rot||0)*Math.PI/180, radius=it.d/2+400;
+    candidates.push({x:it.x+Math.sin(angle)*radius,y:it.y-Math.cos(angle)*radius});
+    for(let r=Math.max(it.w,it.d)/2+400;r<Math.max(it.w,it.d)/2+1800;r+=200){
+      for(let k=0;k<16;k++){const a=k*Math.PI/8; candidates.push({x:it.x+Math.cos(a)*r,y:it.y+Math.sin(a)*r});}
+    }
+  }
+  // 着座前の位置も安全な場合だけ使う。
+  candidates.push(vrSeat.from);
+  const free=candidates.find(p=>!vrBlocked(p.x,p.y));
+  if(!free) return false;
+  const head=camera.getWorldPosition(new THREE.Vector3());
+  rig.position.x+=M(free.x)-head.x; rig.position.z+=-M(free.y)-head.z;
+  rig.position.y=vrSeat.baseY; vrSeat=null; rig.updateMatrixWorld(true);
+  return true;
+}
 function vrSelect(c){
   vrAim(c);
+  const seat=vrSeatTarget();
+  if(seat){ vrSit(seat.it); return; }
   const dh=ray.intersectObjects(doorMeshes,false)[0];
   if(dh&&dh.distance<4){ toggleDoor(dh.object.userData.doorKey); return; }       // 扉を開け閉め
   const p=floorPoint(FLOORS[vrFloor].elev);
@@ -1422,6 +1478,7 @@ function vrSelect(c){
   const hx=head.x*1000, hy=-head.z*1000, d=Math.hypot(p.x-hx,p.y-hy);
   if(d>6000) return;
   if(vrBlocked(p.x,p.y)){ return; }
+  if(vrSeat){ rig.position.y=vrSeat.baseY; vrSeat=null; }
   rig.position.x+=M(p.x-hx); rig.position.z+=-M(p.y-hy);                       // その場所へテレポート
 }
 function vrStep(dt){
@@ -1432,6 +1489,7 @@ function vrStep(dt){
     const ax=gp.axes[2], ay=gp.axes[3];
     if(src.handedness==="left"){            // 左スティック：頭の向きを基準に歩く
       if(Math.abs(ax)<.15&&Math.abs(ay)<.15) continue;
+      if(vrSeat){ vrStand(); continue; } // 最初のスティック操作で安全な場所に立つ
       camera.getWorldDirection(vrV); vrV.y=0; vrV.normalize();
       const fx=vrV.x, fz=vrV.z, rx=-fz, rz=fx, sp=1.4*dt;
       const mx=(fx*(-ay)+rx*ax)*sp, mz=(fz*(-ay)+rz*ax)*sp;
@@ -1448,7 +1506,11 @@ function vrStep(dt){
     }
   }
   // レーザーの先：床に当たる点に印を出す
-  vrCtrls.forEach(c=>{ vrAim(c); const p=floorPoint(FLOORS[vrFloor].elev); const t=c.userData.tip;
+  vrCtrls.forEach(c=>{ vrAim(c);
+    const seat=vrSeatTarget(), color=seat?0x2f7d5b:0xc4382c;
+    c.userData.laser.material.color.setHex(color); c.userData.tip.material.color.setHex(color);
+    if(seat){ const w=c.worldToLocal(seat.hit.point.clone()); c.userData.tip.position.copy(w); c.userData.tip.visible=true; return; }
+    const p=floorPoint(FLOORS[vrFloor].elev); const t=c.userData.tip;
     if(p){ const w=P(p.x,p.y,FLOORS[vrFloor].elev+10); c.worldToLocal(w); t.position.copy(w); t.visible=w.length()<6; } else t.visible=false; });
 }
 
@@ -1471,3 +1533,4 @@ if(document.fonts&&document.fonts.ready) document.fonts.ready.then(rebuild);
 </script>
 
 </body></html>
+
