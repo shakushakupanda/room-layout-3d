@@ -112,7 +112,7 @@ textarea{width:100%;min-height:110px;font:12px var(--f-mono);background:var(--su
         <button id="w-low" aria-pressed="true">低い壁</button><button id="w-full" aria-pressed="false">実寸</button><button id="w-none" aria-pressed="false">床のみ</button>
       </div>
       <div class="seg" role="group" aria-label="視点">
-        <button id="v-persp">斜め</button><button id="v-top">真上</button><button id="v-walk" aria-pressed="false">歩く</button></div><div class="seg" role="group" aria-label="時間帯"><button id="tm-day" aria-pressed="true">昼</button><button id="tm-night" aria-pressed="false">夜</button></div><div class="seg" role="group" aria-label="扉"><button id="dr-open" aria-pressed="true">扉を開ける</button><button id="dr-close" aria-pressed="false">閉める</button>
+        <button id="v-persp">斜め</button><button id="v-top">真上</button><button id="v-walk" aria-pressed="false">歩く</button></div><div class="seg" role="group" aria-label="時間帯"><button id="tm-day" aria-pressed="true">昼</button><button id="tm-night" aria-pressed="false">夜</button></div><div class="seg" role="group" aria-label="扉"><button id="dr-open" aria-pressed="true">扉を開ける</button><button id="dr-close" aria-pressed="false">閉める</button></div><div class="seg" role="group" aria-label="家具の移動"><button id="fm-lock" aria-pressed="true">家具を固定</button><button id="fm-move" aria-pressed="false">動かす</button>
       </div>
     </div>
     <div class="title"><b>2LDK アパート（架空の間取り）</b>約58㎡ ／ 単位 mm ／ グリッド 910</div>
@@ -347,12 +347,18 @@ let drag=null, downAt=null;
 function setNdc(e){const r=cv.getBoundingClientRect(); ndc.set(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1); ray.setFromCamera(ndc,camera);}
 function floorPoint(elev){const pl=new THREE.Plane(new THREE.Vector3(0,1,0),-M(elev)); const v=new THREE.Vector3(); return ray.ray.intersectPlane(pl,v)?{x:v.x*1000,y:-v.z*1000}:null;}
 let look=null;
+// 家具の移動モード：最初は固定（視点を動かしても家具が動かない）
+let FMOVE=false, FMOVE_TIP=0;
+function setFMove(on){ FMOVE=on; document.getElementById("fm-lock").setAttribute("aria-pressed",String(!on)); document.getElementById("fm-move").setAttribute("aria-pressed",String(on));
+  toast(on?"家具をドラッグで動かせます":"家具を固定しました"); }
+document.getElementById("fm-lock").onclick=()=>setFMove(false); document.getElementById("fm-move").onclick=()=>setFMove(true);
 cv.addEventListener("pointerdown",e=>{
   if(e.shiftKey && (e.button===undefined||e.button===0)){ walkFromClick(e); e.preventDefault(); return; }
   if(walk){look={x:e.clientX,y:e.clientY}; downAt={x:e.clientX,y:e.clientY}; cv.setPointerCapture(e.pointerId); return;}
   if(e.button!==undefined && e.button!==0) return;
   setNdc(e); downAt={x:e.clientX,y:e.clientY};
   if(!FLOORS[active]) return;
+  if(!FMOVE) return;                       // 固定モード：家具はつかまず、視点だけ動かす
   const meshes=[]; furnGroup.children.forEach(g=>g.traverse(o=>{if(o.isMesh) meshes.push(o);}));
   const hit=ray.intersectObjects(meshes,false)[0];
   if(!hit) return;
@@ -379,6 +385,8 @@ function endDrag(e){
     const fh=ray.intersectObjects(meshes,false)[0], dh=ray.intersectObjects(doorMeshes,false)[0];
     if(dh && (!fh || dh.distance<fh.distance)){ toggleDoor(dh.object.userData.doorKey); }
     else if(!fh) select(null);
+    else if(!FMOVE){ let o=fh.object; while(o&&o.userData.itemId===undefined) o=o.parent;   // 固定モードでもタップで選択はできる
+      if(o){ select(o.userData.itemId); if(!FMOVE_TIP){ FMOVE_TIP=1; toast("動かすときは上の「動かす」に切り替えてください"); } } }
   }
   downAt=null;
 }
